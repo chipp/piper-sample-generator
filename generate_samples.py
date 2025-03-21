@@ -6,6 +6,8 @@ import json
 import logging
 import os
 import wave
+import uuid
+from tqdm import tqdm
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -73,7 +75,7 @@ def generate_samples(
     _LOGGER.debug("Loading %s", model)
     model_path = Path(model)
 
-    torch_model = torch.load(model_path)
+    torch_model = torch.load(model_path, weights_only = False)
     torch_model.eval()
     _LOGGER.info("Successfully loaded the model")
 
@@ -138,6 +140,8 @@ def generate_samples(
         file_names = it.cycle(file_names)
 
     batch_idx = 0
+    pbar = tqdm(total=max_samples // batch_size)
+
     while speakers_batch:
         if is_done:
             break
@@ -253,10 +257,11 @@ def generate_samples(
             # print(f"Batch {batch_idx +1}/{max_samples//batch_size} complete", " "*200, end='\r')
 
         # Next batch
-        _LOGGER.debug("Batch %s/%s complete", batch_idx + 1, max_samples // batch_size)
+        pbar.update(1)
         speakers_batch = list(it.islice(speakers_iter, 0, batch_size))
         batch_idx += 1
 
+    pbar.close()
     _LOGGER.info("Done")
 
 
@@ -446,7 +451,8 @@ def main() -> None:
 
     # Get command line arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument("text")
+    parser.add_argument("--text", nargs="+", type=str)
+    parser.add_argument("--file", type=Path)
     parser.add_argument("--max-samples", required=True, type=int)
     parser.add_argument(
         "--model", default=_DIR / "models" / "en_US-libritts_r-medium.pt"
@@ -472,6 +478,11 @@ def main() -> None:
     parser.add_argument("--min-phoneme-count", type=int)
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args().__dict__
+
+    if args["file"] is not None:
+        args["text"] = args["file"].read_text().splitlines()
+
+    args["file_names"] = [uuid.uuid4().hex + ".wav" for i in range(args["max_samples"])]
 
     # Generate speech
     generate_samples(**args)
